@@ -34,12 +34,87 @@ class Encoder(nn.Module):
         return global_feature_v
 
 
+class Decoder(nn.Module):
+    def __init__(self, grid_scale = 0.05, grid_size = 2, num_coarse = 512):
+        super(Decoder, self).__init__()
+        self.grid_scale = grid_scale
+        self.grid_size = grid_size
+        self.num_coarse = num_coarse
+        self.num_fine = num_coarse * grid_size * grid_size
+
+        #mlp0
+        self.mlp = nn.Sequential()
+        self.mlp.add_module('mlp0', nn.Linear(in_features = 1024, out_features = 1024, bias = True))
+        self.mlp.add_module('relu0', nn.ReLU(inplace = True))
+        self.mlp.add_module('mlp1', nn.Linear(in_features = 1024, out_features = 1024, bias = True))
+        self.mlp.add_module('relu1', nn.ReLU(inplace = True))
+        self.mlp.add_module('mlp2', nn.Linear(in_features = 1024, out_features = num_coarse * 3 , bias = True))
+        
+        #folding_mlp:1d conv
+        self.folding_mlp = nn.Sequential()
+        self.folding_mlp.add_module('mlp0', nn.Conv1d(in_channels = 1024 + 3 + 2, out_channels = 512, kernel_size = 1))
+        self.folding_mlp.add_module('relu0', nn.ReLU(inplace = True))
+        self.folding_mlp.add_module('mlp1', nn.Conv1d(in_channels = 512, out_channels = 512, kernel_size = 1))
+        self.folding_mlp.add_module('relu1', nn.ReLU(inplace = True))
+        self.folding_mlp.add_module('mlp2', nn.Conv1d(in_channels = 512, out_channels = 3, kernel_size = 1))
+
+
+    def forward(self, feature):
+        #生成coarse的参数
+        coarse = self.mlp(feature) #b * (3 * coarse_size)
+        coarse = coarse.view(coarse.size(0), 3, -1) #B * 3 * coarse_size
+        #print(coarse.size())
+        center = coarse.view(coarse.size(0), coarse.size(1), coarse.size(2), 1)
+        center = center.repeat(1, 1, 1, self.grid_size ** 2)
+        center = center.view(center.size(0), center.size(1), -1)
+        #print(center.size())
+        
+        #生成folding用的x，y网格参数
+        x = torch.linspace(-self.grid_scale, self.grid_scale, self.grid_size)
+        y = torch.linspace(-self.grid_scale, self.grid_scale, self.grid_size)
+        grid_x, grid_y = torch.meshgrid(x, y) #u*u
+        grid = torch.cat([grid_x, grid_y], -1) #u*u*2
+        grid = grid.view(1, 2, self.grid_size ** 2) #1 * 2 * t
+        expanded_grid = grid.repeat(1, 1, self.num_coarse) #1 * 2 * (t*coarse_size) = 1*2*fine_size
+        expanded_grid = expanded_grid.repeat(feature.size(0), 1, 1) #B * 2* fine_size
+        #print(expanded_grid.size())
+
+        #生成encoder信息对应的参数
+        encoder_info = feature.view(feature.size(0), feature.size(1), 1) #B*1024*1
+        encoder_info = encoder_info.repeat(1, 1, self.num_fine)#B*1024*fine_size
+        #print(encoder_info.size())
+
+        #结合得到整个feture
+        full_feature = torch.cat([expanded_grid, center, encoder_info], 1) #B * 1029 *fine_size
+        fine = self.folding_mlp(full_feature) #B*3*fine_size
+        fine = fine + center #B*3*fine_size
+        coarse = coarse.permute(0, 2, 1) #B*coarse_size*3
+        fine = fine.permute(0, 2, 1) #B*fine_size * 3
+        #print(coarse.size())
+        #print(fine.size())
+        return coarse, fine
+
+class PCN(nn.Module):
+    def __init__(self):
+        super(PCN, self).__init__()
+        self.encoder = Encoder()
+        self.decoder = Decoder()
+
+    def forward(self, x):
+        return self.decoder(self.encoder(x))
+
+    def to(self, device, **kwargs):
+        self.decoder.grid = self.decoder.grid.to(device)
+        super(PCN, self).to(device, **kwargs)
+
 #测试代码
 if __name__ == '__main__':
     print(torch.__version__) 
     b = 20
     n = 35
     x = torch.rand(b, n, 3)
-    model = Encoder()
+    model = PCN()
     print(model)
     out = model(x)
+
+
