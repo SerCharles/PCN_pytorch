@@ -58,6 +58,10 @@ class Decoder(nn.Module):
         self.folding_mlp.add_module('relu1', nn.ReLU(inplace = True))
         self.folding_mlp.add_module('mlp2', nn.Conv1d(in_channels = 512, out_channels = 3, kernel_size = 1))
 
+        #grid
+        x = torch.linspace(-self.grid_scale, self.grid_scale, self.grid_size)
+        y = torch.linspace(-self.grid_scale, self.grid_scale, self.grid_size)
+        self.grid_x, self.grid_y = torch.meshgrid(x, y)
 
     def forward(self, feature):
         #生成coarse的参数
@@ -70,10 +74,7 @@ class Decoder(nn.Module):
         #print(center.size())
         
         #生成folding用的x，y网格参数
-        x = torch.linspace(-self.grid_scale, self.grid_scale, self.grid_size)
-        y = torch.linspace(-self.grid_scale, self.grid_scale, self.grid_size)
-        grid_x, grid_y = torch.meshgrid(x, y) #u*u
-        grid = torch.cat([grid_x, grid_y], -1) #u*u*2
+        grid = torch.cat([self.grid_x, self.grid_y], -1) #u*u*2
         grid = grid.view(1, 2, self.grid_size ** 2) #1 * 2 * t
         expanded_grid = grid.repeat(1, 1, self.num_coarse) #1 * 2 * (t*coarse_size) = 1*2*fine_size
         expanded_grid = expanded_grid.repeat(feature.size(0), 1, 1) #B * 2* fine_size
@@ -104,7 +105,8 @@ class PCN(nn.Module):
         return self.decoder(self.encoder(x))
 
     def to(self, device, **kwargs):
-        self.decoder.grid = self.decoder.grid.to(device)
+        self.decoder.grid_x = self.decoder.grid_x.to(device)
+        self.decoder.grid_y = self.decoder.grid_y.to(device)
         super(PCN, self).to(device, **kwargs)
 
 #测试代码

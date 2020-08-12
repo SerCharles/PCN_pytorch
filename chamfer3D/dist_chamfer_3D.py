@@ -1,19 +1,17 @@
-'''
-Copied from https://github.com/wentaoyuan/pcn
-'''
+
 
 from torch import nn
 from torch.autograd import Function
 import torch
 import importlib
 import os
-chamfer_found = importlib.find_loader("chamfer_3D") is not None
+chamfer_found = importlib.find_loader("chamfer_3D_sgl") is not None
 if not chamfer_found:
     ## Cool trick from https://github.com/chrdiller
     print("Jitting Chamfer 3D")
 
     from torch.utils.cpp_extension import load
-    chamfer_3D = load(name="chamfer_3D",
+    chamfer_3D = load(name="chamfer_3D_sgl",
           sources=[
               "/".join(os.path.abspath(__file__).split('/')[:-1] + ["chamfer_cuda.cpp"]),
               "/".join(os.path.abspath(__file__).split('/')[:-1] + ["chamfer3D.cu"]),
@@ -21,7 +19,7 @@ if not chamfer_found:
     print("Loaded JIT 3D CUDA chamfer distance")
 
 else:
-    import chamfer_3D
+    import chamfer_3D_sgl
     print("Loaded compiled 3D CUDA chamfer distance")
 
 
@@ -46,7 +44,7 @@ class chamfer_3DFunction(Function):
         idx2 = idx2.to(device)
         torch.cuda.set_device(device)
 
-        chamfer_3D.forward(xyz1, xyz2, dist1, dist2, idx1, idx2)
+        chamfer_3D_sgl.forward(xyz1, xyz2, dist1, dist2, idx1, idx2)
         ctx.save_for_backward(xyz1, xyz2, idx1, idx2)
         return dist1, dist2, idx1, idx2
 
@@ -62,7 +60,7 @@ class chamfer_3DFunction(Function):
 
         gradxyz1 = gradxyz1.to(device)
         gradxyz2 = gradxyz2.to(device)
-        chamfer_3D.backward(
+        chamfer_3D_sgl.backward(
             xyz1, xyz2, gradxyz1, gradxyz2, graddist1, graddist2, idx1, idx2
         )
         return gradxyz1, gradxyz2

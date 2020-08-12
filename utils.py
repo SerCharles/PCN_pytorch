@@ -300,7 +300,7 @@ class DecoderCD(nn.Module):
         grid = torch.meshgrid(x, y)
         grid = torch.reshape(torch.stack(grid, 2), [-1, 2]).t().contiguous()  # 2, grid_size**2
         grid.unsqueeze_(0)  # (1, 2, grid_size**2)
-        self.grid = grid.repeat(1, 1, num_coarse)
+        self.grid = grid.repeat(1, 1, num_coarse) #(1, 2, t^2 * num_coarse)
 
         self.mlp1 = nn.Sequential(
             nn.Linear(1024, 1024),  # global feature size 1024
@@ -325,12 +325,12 @@ class DecoderCD(nn.Module):
         """
         coarse = self.mlp1(feature)
         coarse = torch.reshape(coarse, (-1, 3, self.num_coarse))  # B x 3 x num_coarse
-        grid_feature = self.grid.repeat(feature.size(0), 1, 1)
+        grid_feature = self.grid.repeat(feature.size(0), 1, 1) #b*2*num_fine
         # center
         center = torch.unsqueeze(coarse, 3).repeat(1, 1, 1, self.grid_size ** 2)  # (B, 3, num_coarse, grid_size**2)
-        center = torch.reshape(center, (-1, 3, self.num_fine))
+        center = torch.reshape(center, (-1, 3, self.num_fine)) #b*3*num_fine
 
-        global_feature = torch.unsqueeze(feature, 2).repeat(1, 1, self.num_fine)
+        global_feature = torch.unsqueeze(feature, 2).repeat(1, 1, self.num_fine) #b*1024*num_fine
 
         feat = torch.cat([grid_feature, center, global_feature], 1)
 
